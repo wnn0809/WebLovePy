@@ -1,0 +1,121 @@
+1.公司有20台服务器部署在天津、浙江、甘肃等地，每次都要通过vnc或者xshell远程连接过去，，执行一条条命令，完成巡检的过程，耗时较长。
+  后期还有可能在其他地级市增加服务器。于是，ssh连接的使用Python提供的第三方库paramiko模块、Telnet连接的使用Telnetlib库写了一
+  个脚本，自动完成巡检，每次去只需在输出文件中查看结果，节省不少时间。
+  
+  
+  paramiko模块
+  代码如下：
+  #-*- coding: utf-8 -*-
+#!/usr/bin/python
+#################################################################
+#功能：通过paramiko模块远程连接服务器，执行命令列表完成多台机器信令的巡查。
+#     通过time定时模实现脚本每24小时运行一次，将状态文件写入OutPutFile文件中。
+#################################################################
+
+import paramiko
+import datetime
+import time
+import os
+import sys
+
+################################配置信息######################################
+
+#这是输出文件目录
+g_OutPutFileDir = '/home/OutPutFile'
+#这是输出错误信息目录
+g_ErrorFileDir = '/home/ErrorFile'
+#执行的命令列表
+commands = ['cd /usr/local/x;ls ./log',
+            'cd /usr/local/x;cat ./State/log',
+            'cd /usr/local/x;cat ./State/huio.xml']
+#协议解析信令服务器IP
+Hosts = ['192.168.3.xx','192.168.x.xx','192.168.3.xx','192.168.3.xx','192.168.3.xx',
+          '192.168.x.xx','192.168.x.xx','192.168.3.xx','192.168.x.xx']
+#用户名
+username = "xxxxx" 
+#密码
+password = "xxxxxx"  
+
+############################################################################
+
+def sshconnection(ip,username,password,commands):
+    global outfile,errorfile 
+    try:
+        #创建SSH对象
+        ssh = paramiko.SSHClient()
+        #允许连接不在Hosts列表中主机
+        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        #连接服务器
+        ssh.connect(ip,22,username,password,timeout=360)
+        outfile.write('%s------------%s---start-------------\n' % (ip,datetime.datetime.now()))
+        #遍历命令列表命令
+        for command in commands:
+            stdin, stdout, stderr = ssh.exec_command(m)
+            #stdin.write("Y")  #简单交互，输入 ‘Y'
+            outResults = stdout.readlines()
+            errorResults = stderr.readlines()
+        #写入输出结果到文件中
+	    if outResults != '':
+            	for outResult in outResults:
+                    outfile.write(outResult)
+            	outfile.write('%s------------%s---end-------------\n' % (ip,datetime.datetime.now()))
+            for errorResult in errorResults:
+                errorfile.write(errorResult)
+        ssh.close()
+    except Exception,e:
+        os.system('echo \'find a err\' > /home/error')
+        print ('%s\tError:%s\n'%(ip,e))
+        
+def sleeptime(hour,m,sec):
+    return hour*3600 + m*60 + sec
+    
+#创建守护进程
+def creatDaemon():
+    try:
+        #第一次fork，生成子进程，脱离父进程
+        Pid = os.fork()
+        if Pid > 0 :
+            sys.exit(0)
+    except OSError, error:
+        print('fork #1 failed: %d (%s)'%(error.errno,error.strerror))
+        sys.exit(1)
+    #修改工作目录
+    os.chdir("/")
+    #设置新的会话连接
+    os.setsid()
+    #重新设置文件创建权限
+    os.umask(0)
+
+    try:
+        #第二次fork，禁止进程打开终端
+        Pid = os.fork() 
+        if Pid > 0 :
+            sys.exit(0)
+    except OSError, error:
+        print('fork #2 failed: %d (%s)'%(error.errno,error.strerror))
+        sys.exit(1)
+        
+    #重定向文件描述符
+    sys.stdout.flush()
+    sys.stderr.flush()
+    Si = file("/dev/null", 'r')
+    So = file("/dev/null", 'a+')
+    Se = file("/dev/null", 'a+', 0)
+    os.dup2(Si.fileno(), sys.stdin.fileno())
+    os.dup2(So.fileno(), sys.stdout.fileno())
+    os.dup2(Se.fileno(), sys.stderr.fileno())
+
+def Domain():
+    global outfile,errorfile
+    creatDaemon()
+    second = sleeptime(24,0,0)
+    os.system('echo %d > /home/temp' % second)
+    while True:
+        time.sleep(second)
+        outfile = open(g_OutPutFileDir, 'a')
+        errorfile = open(g_ErrorFileDir, 'a')
+        for Host in Hosts: 
+        	sshconnection(ip,username,password,commands)
+        outfile.close()
+        errorfile.close()
+ 

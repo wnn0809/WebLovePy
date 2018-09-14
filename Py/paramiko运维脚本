@@ -118,3 +118,6 @@ def Domain():
         	sshconnection(ip,username,password,commands)
         outfile.close()
         errorfile.close()
+
+
+	到这里基本功能实现。
